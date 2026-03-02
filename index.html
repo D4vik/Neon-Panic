@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Panic - Cyber Dungeon Crawler</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="game-container">
+        <!-- HUD Section -->
+        <div id="hud">
+            <div class="hud-column hud-left">
+                <div id="p2-stats" class="player-hud hidden">
+                    <div class="label">P2 (YELLOW)</div>
+                    <div id="p2-lives" class="lives-container">
+                        <div class="life-square p2-life"></div>
+                        <div class="life-square p2-life"></div>
+                        <div class="life-square p2-life"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="hud-column hud-center">
+                <div id="level-stats">
+                    <div id="current-level">LEVEL: 1</div>
+                    <div id="current-score">SCORE: 0000</div>
+                </div>
+            </div>
+            <div class="hud-column hud-right">
+                <div id="p1-stats" class="player-hud">
+                    <div class="label">P1 (GREEN)</div>
+                    <div id="p1-lives" class="lives-container">
+                        <div class="life-square p1-life"></div>
+                        <div class="life-square p1-life"></div>
+                        <div class="life-square p1-life"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Boss Health Bar (Dark Souls Style) -->
+        <div id="boss-health-container" class="hidden">
+            <div class="boss-name">NEON ABYSS</div>
+            <div class="boss-bar-bg">
+                <div id="boss-health-fill"></div>
+            </div>
+        </div>
+
+        <!-- Game Canvas (Where entities live) -->
+        <div id="game-world">
+            <div class="vignette"></div>
+        </div>
+        <div id="announcement-layer"></div>
+        <div id="level-transition-overlay" class="hidden"></div>
+
+        <!-- Menus Overlay -->
+        <div id="menu-overlay" class="overlay">
+            <!-- Start Screen -->
+            <div id="start-screen" class="menu-content">
+                <h1 class="neon-text">NEON PANIC</h1>
+                <div class="pulse-text">PRESS START</div>
+                <button id="btn-start" class="neon-button">START</button>
+            </div>
+
+            <!-- Main Menu -->
+            <div id="main-menu" class="menu-content hidden">
+                <h2 class="neon-text-small">MAIN MENU</h2>
+                <button id="btn-single" class="neon-button">SINGLE PLAYER</button>
+                <button id="btn-multi" class="neon-button">MULTIPLAYER</button>
+                <button id="btn-options" class="neon-button">OPTIONS</button>
+                <button id="btn-exit" class="neon-button">EXIT</button>
+            </div>
+
+            <!-- Options Menu -->
+            <div id="options-menu" class="menu-content hidden">
+                <h2 class="neon-text-small">OPTIONS</h2>
+                <div class="option-item">
+                    <span>VOLUME</span>
+                    <input type="range" min="0" max="100" value="50">
+                </div>
+                <div class="option-item">
+                    <span>P1 COLOR</span>
+                    <input type="color" id="p1-color-picker" value="#39FF14">
+                </div>
+                <div class="option-item">
+                    <span>P2 COLOR</span>
+                    <input type="color" id="p2-color-picker" value="#ffff00">
+                </div>
+                <div class="option-item">
+                    <span>KEY REMAPPING</span>
+                    <button class="neon-button-small">CONFIGURE</button>
+                </div>
+                <button id="btn-options-back" class="neon-button">BACK</button>
+            </div>
+
+            <!-- Pause Menu -->
+            <div id="pause-menu" class="menu-content hidden">
+                <h2 class="neon-text-small">PAUSED</h2>
+                <button id="btn-resume" class="neon-button">RESUME</button>
+                <button id="btn-pause-exit" class="neon-button">EXIT TO MENU</button>
+            </div>
+
+            <!-- Game Over Menu -->
+            <div id="game-over-menu" class="menu-content hidden">
+                <h1 class="neon-text-red">GAME OVER</h1>
+                <div id="final-stats">
+                    <p>SCORE: <span id="final-score">0</span></p>
+                    <p>LEVELS CLEARED: <span id="final-levels">0</span></p>
+                </div>
+                <div id="game-over-buttons" class="hidden">
+                    <button id="btn-restart" class="neon-button">RESTART</button>
+                    <button id="btn-game-over-exit" class="neon-button">MAIN MENU</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="game.js"></script>
+</body>
+
+</html>
