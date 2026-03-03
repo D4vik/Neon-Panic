@@ -54,6 +54,14 @@ class Entity {
 
         this.domElement = document.createElement('div');
         this.domElement.classList.add('entity', type);
+
+        // Circular ground shadow for characters
+        if (type === 'player' || type === 'enemy' || type === 'boss') {
+            const shadow = document.createElement('div');
+            shadow.classList.add('entity-shadow');
+            this.domElement.appendChild(shadow);
+        }
+
         this.updatePosition();
     }
 
@@ -122,27 +130,108 @@ class Entity {
 
 // --- Projectile ---
 class Projectile extends Entity {
-    constructor(x, y, vx, vy, ownerType, color) {
+    constructor(x, y, vx, vy, ownerType, color, owner = null) {
         super(x, y, 12, 12, 'projectile');
         this.vx = vx;
         this.vy = vy;
         this.ownerType = ownerType;
+        this.owner = owner;
         this.isPiercing = false;
+        this.isBoomerang = false;
+        this.isBounce = false;
+        this.bounces = 0;
+        this.traveled = 0;
+        this.returning = false;
+        this._isInside = false; // Track for piercing particles
+        this._lastPos = { x, y };
+
         this.domElement.classList.add(ownerType === 'player' ? 'player-bullet' : 'enemy-bullet');
-        // Apply colour override if provided (player bullets use their player colour)
         if (color) {
             this.domElement.style.background = color;
             this.domElement.style.boxShadow = `0 0 8px ${color}, 0 0 14px ${color}`;
         }
     }
 
-    update() {
+    update(game) {
+        this._lastPos = { x: this.x, y: this.y };
         this.x += this.vx;
         this.y += this.vy;
+
+        const dist = Math.sqrt((this.x - this._lastPos.x) ** 2 + (this.y - this._lastPos.y) ** 2);
+        this.traveled += dist;
+
+        if (this.isPiercing) {
+            const obstacles = game.entities.filter(e => e.type === 'obstacle');
+            const collidingNow = obstacles.some(o => this.checkCollision(o));
+            if (collidingNow && !this._isInside) {
+                // Just entered
+                game.createSparkParticles(this.x, this.y, '#ffffff');
+                this._isInside = true;
+            } else if (!collidingNow && this._isInside) {
+                // Just exited
+                game.createSparkParticles(this.x, this.y, '#ffffff');
+                this._isInside = false;
+            }
+        }
+
+        if (this.isBoomerang) {
+            if (!this.returning && this.traveled > 200) {
+                this.returning = true;
+            }
+            if (this.returning && this.owner) {
+                const angle = Math.atan2(this.owner.y - this.y, this.owner.x - this.x);
+                this.vx = Math.cos(angle) * CONFIG.BULLET_SPEED;
+                this.vy = Math.sin(angle) * CONFIG.BULLET_SPEED;
+                if (Utils.distance(this, this.owner) < 20) {
+                    this.destroy();
+                }
+            }
+        }
+
+        if (this.isBounce) {
+            const barriers = game.entities.filter(e => e.type === 'obstacle' || e.type === 'door');
+            for (const o of barriers) {
+                if (this.checkCollision(o)) {
+                    this.bounces++;
+                    if (this.bounces >= 3) {
+                        this.destroy();
+                        break;
+                    }
+                    // Simple reflection
+                    const dx = this.x - o.x;
+                    const dy = this.y - o.y;
+                    if (Math.abs(dx) > Math.abs(dy)) {
+                        this.vx *= -1;
+                    } else {
+                        this.vy *= -1;
+                    }
+                    // Random jitter
+                    this.vx += (Math.random() - 0.5) * 2;
+                    this.vy += (Math.random() - 0.5) * 2;
+                    // Normalize speed
+                    const mag = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                    this.vx = (this.vx / mag) * CONFIG.BULLET_SPEED;
+                    this.vy = (this.vy / mag) * CONFIG.BULLET_SPEED;
+
+                    // Push out
+                    this.x += this.vx * 2;
+                    this.y += this.vy * 2;
+                }
+            }
+        }
+
         this.updatePosition();
         if (this.x < 0 || this.x > CONFIG.CANVAS_WIDTH ||
             this.y < 0 || this.y > CONFIG.CANVAS_HEIGHT) {
-            this.destroy();
+            if (this.isBounce && this.bounces < 3) {
+                if (this.x < 0 || this.x > CONFIG.CANVAS_WIDTH) this.vx *= -1;
+                if (this.y < 0 || this.y > CONFIG.CANVAS_HEIGHT) this.vy *= -1;
+                this.bounces++;
+                this.x = Utils.clamp(this.x, 5, CONFIG.CANVAS_WIDTH - 5);
+                this.y = Utils.clamp(this.y, 5, CONFIG.CANVAS_HEIGHT - 5);
+            } else {
+                this.destroy();
+            }
         }
     }
 
@@ -151,9 +240,24 @@ class Projectile extends Entity {
         if (this.isPiercing) {
             if (entity.type === 'boss' || entity instanceof KeyEnemy) {
                 this.destroy();
-                return 2; // Damage for high HP entities
+                return 2;
             }
-            return 1; // Pierces normal enemies
+            return 1;
+        } else if (this.isBoomerang) {
+            if (entity.type === 'boss' || entity instanceof KeyEnemy) {
+                return 2;
+            }
+            return 1;
+        } else if (this.isBounce) {
+            if (entity.type === 'enemy' || entity.type === 'boss') {
+                this.bounces++;
+                if (this.bounces >= 3) this.destroy();
+                else {
+                    this.vx *= -1;
+                    this.vy *= -1;
+                }
+            }
+            return 1;
         } else {
             this.destroy();
             return 1;
@@ -335,6 +439,20 @@ class Player extends Entity {
                 game.entities.push(bullet);
                 game.worldElement.appendChild(bullet.domElement);
             });
+        } else if (this.attackType === 'boomerang') {
+            const vx = Math.cos(this.aimAngle) * CONFIG.BULLET_SPEED;
+            const vy = Math.sin(this.aimAngle) * CONFIG.BULLET_SPEED;
+            const bullet = new Projectile(this.x, this.y, vx, vy, 'player', this._color, this);
+            bullet.isBoomerang = true;
+            game.entities.push(bullet);
+            game.worldElement.appendChild(bullet.domElement);
+        } else if (this.attackType === 'bounce') {
+            const vx = Math.cos(this.aimAngle) * CONFIG.BULLET_SPEED;
+            const vy = Math.sin(this.aimAngle) * CONFIG.BULLET_SPEED;
+            const bullet = new Projectile(this.x, this.y, vx, vy, 'player', this._color);
+            bullet.isBounce = true;
+            game.entities.push(bullet);
+            game.worldElement.appendChild(bullet.domElement);
         } else {
             const vx = Math.cos(this.aimAngle) * CONFIG.BULLET_SPEED;
             const vy = Math.sin(this.aimAngle) * CONFIG.BULLET_SPEED;
@@ -482,11 +600,11 @@ class Enemy extends Entity {
             if (alivePlayers.length > 0) {
                 const target = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
                 const angle = Math.atan2(target.y - this.y, target.x - this.x);
-                const bullet = new Projectile(this.x, this.y, Math.cos(angle) * 4, Math.sin(angle) * 4, 'enemy', null);
+                const bullet = new Projectile(this.x, this.y, Math.cos(angle) * 3, Math.sin(angle) * 3, 'enemy', null);
                 game.entities.push(bullet);
                 game.worldElement.appendChild(bullet.domElement);
+                this.shootTimer = 120 + Math.random() * 60;
             }
-            this.shootTimer = Utils.randomRange(80, 140); // Increased fire rate (was 160, 220)
         }
 
         // Trail
@@ -507,9 +625,15 @@ class ZombieEnemy extends Entity {
         this.circleDir = Math.random() > 0.5 ? 1 : -1;
     }
 
-    activate(players) {
-        this.active = false; // Stay inactive until timer in spawnLevelEntities
+    activate() {
+        this.active = false;
         this.domElement.style.opacity = '0';
+        setTimeout(() => {
+            if (this.dead) return;
+            this.active = true;
+            this.domElement.style.opacity = '1';
+            this.domElement.style.transition = 'opacity 0.5s';
+        }, 1000);
     }
 
     update(players, game) {
@@ -560,18 +684,95 @@ class ZombieEnemy extends Entity {
     }
 }
 
+// --- Sphere Enemy (Circle, diagonal shooting) ---
+class SphereEnemy extends Entity {
+    constructor(x, y) {
+        super(x, y, 40, 40, 'enemy');
+        this.hp = 1;
+        this.speed = 1.0;
+        this.active = false;
+        this.domElement.classList.add('sphere-enemy'); // New class for styling
+        this.moveAngle = Math.random() * Math.PI * 2;
+        this.shootTimer = 200 + Math.random() * 100;
+        this.circleDir = Math.random() > 0.5 ? 1 : -1;
+    }
+
+    activate() {
+        this.active = false;
+        this.domElement.style.opacity = '0';
+        setTimeout(() => {
+            if (this.dead) return;
+            this.active = true;
+            this.domElement.style.opacity = '1';
+            this.domElement.style.transition = 'opacity 0.5s';
+        }, 1000);
+    }
+
+    update(players, game) {
+        if (!this.active) return;
+
+        // Circular movement logic
+        this.moveAngle += 0.02 * this.circleDir;
+        const vx = Math.cos(this.moveAngle) * this.speed;
+        const vy = Math.sin(this.moveAngle) * this.speed;
+
+        const nx = this.x + vx;
+        const ny = this.y + vy;
+
+        const obstacles = game.entities.filter(e => e.type === 'obstacle');
+        const blocked = obstacles.some(o => Utils.rectOverlap(nx, ny, this.width, this.height, o));
+
+        if (!blocked) {
+            this.x = nx;
+            this.y = ny;
+        } else {
+            // Reverse circle direction on hit
+            this.circleDir *= -1;
+            this.moveAngle += Math.PI; // Flip angle
+        }
+
+        this.shootTimer--;
+        if (this.shootTimer <= 0) {
+            this.shoot(game);
+            this.shootTimer = 200 + Math.random() * 100;
+        }
+
+        // Enemy resolution (solid enemies)
+        const enemies = game.entities.filter(e => e.type === 'enemy' || e.type === 'boss');
+        this._resolveEntities(enemies);
+
+        this.x = Utils.clamp(this.x, 20, CONFIG.CANVAS_WIDTH - 20);
+        this.y = Utils.clamp(this.y, 20, CONFIG.CANVAS_HEIGHT - 20);
+
+        // Trail
+        this._spawnTrail(game.worldElement, '#00ccff', 4); // Blue trail
+        this.updatePosition();
+    }
+
+    shoot(game) {
+        const angles = [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4];
+        angles.forEach(angle => {
+            const bullet = new Projectile(this.x, this.y, Math.cos(angle) * 4, Math.sin(angle) * 4, 'enemy', null);
+            game.entities.push(bullet);
+            game.worldElement.appendChild(bullet.domElement);
+        });
+    }
+}
+
 // --- Key Enemy (Miniboss, Diamond, RGB, 6 hits) ---
 class KeyEnemy extends Entity {
     constructor(x, y) {
         super(x, y, 45, 45, 'enemy');
-        this.hp = 6;
+        this.maxHp = 6;
+        this.hp = this.maxHp;
         this.speed = 1.5;
         this.active = false;
         this.domElement.classList.add('zombie-enemy', 'rgb-pulse');
         this.moveAngle = Math.random() * Math.PI * 2;
         this.shootTimer = 60;
-        this.patternIndex = 0; // Alternates between cardinal and diagonal
+        this.patternIndex = 0;
         this.circleDir = Math.random() > 0.5 ? 1 : -1;
+        this.dirChangeTimer = Utils.randomRange(120, 240);
     }
 
     activate() {
@@ -582,7 +783,13 @@ class KeyEnemy extends Entity {
     update(players, game) {
         if (!this.active) return;
 
-        // Circular movement
+        // Random direction change
+        this.dirChangeTimer--;
+        if (this.dirChangeTimer <= 0) {
+            this.circleDir *= -1;
+            this.dirChangeTimer = Utils.randomRange(120, 240);
+        }
+
         this.moveAngle += 0.025 * this.circleDir;
         this.x += Math.cos(this.moveAngle) * this.speed;
         this.y += Math.sin(this.moveAngle) * this.speed;
@@ -590,12 +797,13 @@ class KeyEnemy extends Entity {
         this.x = Utils.clamp(this.x, 60, CONFIG.CANVAS_WIDTH - 60);
         this.y = Utils.clamp(this.y, 60, CONFIG.CANVAS_HEIGHT - 60);
 
-        // Shooting pattern
         this.shootTimer--;
         if (this.shootTimer <= 0) {
-            const angles = this.patternIndex % 2 === 0
-                ? [0, Math.PI / 2, Math.PI, -Math.PI / 2] // Cardinal
-                : [Math.PI / 4, 3 * Math.PI / 4, -3 * Math.PI / 4, -Math.PI / 4]; // Diagonal
+            // Random choice between cardinal and diagonal
+            const useCardinal = Math.random() < 0.5;
+            const angles = useCardinal
+                ? [0, Math.PI / 2, Math.PI, -Math.PI / 2]
+                : [Math.PI / 4, 3 * Math.PI / 4, -3 * Math.PI / 4, -Math.PI / 4];
 
             angles.forEach(angle => {
                 const bullet = new Projectile(this.x, this.y, Math.cos(angle) * 5, Math.sin(angle) * 5, 'enemy', null);
@@ -603,20 +811,31 @@ class KeyEnemy extends Entity {
                 game.worldElement.appendChild(bullet.domElement);
             });
 
-            this.patternIndex++;
             this.shootTimer = 90;
         }
 
-        // Resolution and Trail
+        this.updateHealthBar();
+
         const others = game.entities.filter(e => (e.type === 'enemy' || e.type === 'boss' || e.type === 'obstacle') && e !== this);
         this._resolveEntities(others);
-        this._spawnTrail(game.worldElement, '#ffffff', 3); // White trail for RGB enemy
+        this._spawnTrail(game.worldElement, '#ffffff', 3);
         this.updatePosition();
+    }
+
+    updateHealthBar() {
+        const fill = document.getElementById('miniboss-health-fill');
+        if (fill) fill.style.width = `${(this.hp / this.maxHp) * 100}%`;
     }
 
     die(game) {
         if (this.dead) return;
         this.dead = true;
+        // Drain health bar to 0
+        const fill = document.getElementById('miniboss-health-fill');
+        if (fill) fill.style.width = '0%';
+        setTimeout(() => {
+            document.getElementById('miniboss-health-container').classList.add('hidden');
+        }, 400);
         game.executeKeyDeath(this);
     }
 }
@@ -631,11 +850,32 @@ class Boss extends Entity {
         this.moveTimer = 0;
         this.moveAngle = Math.random() * Math.PI * 2;
         this.moveSpeed = 1.0;
+        this.moveDir = Math.random() > 0.5 ? 1 : -1;
+        this.dirChangeTimer = Utils.randomRange(80, 200);
         this.domElement.style.width = '100px';
         this.domElement.style.height = '100px';
     }
 
+    // Refined hitbox — 80% of visual size
+    getBounds() {
+        return {
+            left: this.x - 40,
+            right: this.x + 40,
+            top: this.y - 40,
+            bottom: this.y + 40
+        };
+    }
+
     update(players, game) {
+        if (!this.active) return;
+
+        // Random direction change
+        this.dirChangeTimer--;
+        if (this.dirChangeTimer <= 0) {
+            this.moveDir *= -1;
+            this.dirChangeTimer = Utils.randomRange(80, 200);
+        }
+
         this.moveTimer--;
         if (this.moveTimer <= 0) {
             const cx = CONFIG.CANVAS_WIDTH / 2 - this.x;
@@ -646,7 +886,7 @@ class Boss extends Entity {
             const bx = Math.cos(ra) * (1 - w) + (cx / (cd || 1)) * w;
             const by = Math.sin(ra) * (1 - w) + (cy / (cd || 1)) * w;
             const mag = Math.sqrt(bx * bx + by * by);
-            this.moveAngle = Math.atan2(by / mag, bx / mag);
+            this.moveAngle = Math.atan2(by / mag, bx / mag) * this.moveDir;
             this.moveTimer = Utils.randomRange(40, 100);
         }
 
@@ -740,6 +980,27 @@ class Powerup extends Entity {
     }
 }
 
+// --- Life Square ---
+class LifeSquare extends Entity {
+    constructor(x, y) {
+        super(x, y, 30, 30, 'powerup');
+        this.domElement.classList.add('life-square-entity');
+        this.tick = 0;
+    }
+
+    update(game) {
+        this.tick++;
+        if (this.tick % 30 === 0) {
+            const p1Color = document.getElementById('p1-color-picker').value;
+            const p2Color = document.getElementById('p2-color-picker').value;
+            const color = (this.tick / 30) % 2 === 0 ? p1Color : p2Color;
+            this.domElement.style.background = color;
+            this.domElement.style.boxShadow = `0 0 15px ${color}`;
+        }
+        this.updatePosition();
+    }
+}
+
 // --- Trap ---
 class Trap extends Entity {
     constructor(x, y) {
@@ -748,6 +1009,8 @@ class Trap extends Entity {
     }
 
     update() {
+        const rot = (performance.now() / 10) % 360;
+        this.domElement.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
         this.updatePosition();
     }
 }
@@ -760,9 +1023,8 @@ class Room {
         this.cleared = false;
         this.type = 'normal';
         this.doors = { top: null, bottom: null, left: null, right: null };
-        this.entities = [];
-        this.layout = [];
         this.enemiesSpawned = false;
+        this.isEmpty = false;
     }
 }
 
@@ -791,26 +1053,61 @@ class DungeonGenerator {
             }
         }
 
-        const normalRooms = roomCoords.filter(c => c[0] !== 0 || c[1] !== 0);
+        const normalCoords = roomCoords.filter(c => c[0] !== 0 || c[1] !== 0);
 
-        // Pick Key and Boss rooms, ensuring they are not connected to start (0,0)
-        // Distance must be > 1
-        const pickSpecialRoom = () => {
-            const potential = normalRooms.filter(c => (Math.abs(c[0]) + Math.abs(c[1])) > 1);
+        // Function to pick and remove a coord for special rooms
+        const pickRoom = () => {
+            const potential = normalCoords.filter(c => (Math.abs(c[0]) + Math.abs(c[1])) > 1);
             if (potential.length > 0) {
-                const picked = potential[Math.floor(Math.random() * potential.length)];
-                const index = normalRooms.indexOf(picked);
-                return normalRooms.splice(index, 1)[0];
+                const idx = Math.floor(Math.random() * potential.length);
+                const picked = potential[idx];
+                const actualIdx = normalCoords.findIndex(c => c[0] === picked[0] && c[1] === picked[1]);
+                return normalCoords.splice(actualIdx, 1)[0];
             }
-            return normalRooms.length > 0 ? normalRooms.pop() : [0, 0];
+            return normalCoords.length > 0 ? normalCoords.pop() : [0, 0];
         };
 
-        const bossCoord = pickSpecialRoom();
-        const keyCoord = pickSpecialRoom();
-        const treasureCoord = pickSpecialRoom();
+        const bossCoord = pickRoom();
+        const keyCoord = pickRoom();
+        const treasureCoord = pickRoom();
         rooms.get(`${bossCoord[0]},${bossCoord[1]}`).type = 'boss';
         rooms.get(`${keyCoord[0]},${keyCoord[1]}`).type = 'key';
         rooms.get(`${treasureCoord[0]},${treasureCoord[1]}`).type = 'treasure';
+
+        // 1/4 of total rooms (excluding start) should be empty
+        const emptyCount = Math.floor((roomCoords.length - 1) / 4);
+        for (let i = 0; i < emptyCount; i++) {
+            if (normalCoords.length === 0) break;
+            const picked = normalCoords.splice(Math.floor(Math.random() * normalCoords.length), 1)[0];
+            rooms.get(`${picked[0]},${picked[1]}`).isEmpty = true;
+        }
+
+        // Reachability check — BFS that ensures each special room is reachable
+        // WITHOUT passing through another special room as intermediate
+        const specialKeys = new Set([
+            `${bossCoord[0]},${bossCoord[1]}`,
+            `${keyCoord[0]},${keyCoord[1]}`,
+            `${treasureCoord[0]},${treasureCoord[1]}`
+        ]);
+        const canReach = (targetKey) => {
+            const visited = new Set(['0,0']);
+            const queue = [[0, 0]];
+            while (queue.length > 0) {
+                const [cx, cy] = queue.shift();
+                for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+                    const nk = `${cx + dx},${cy + dy}`;
+                    if (!rooms.has(nk) || visited.has(nk)) continue;
+                    visited.add(nk);
+                    if (nk === targetKey) return true;
+                    // Don't traverse through OTHER special rooms
+                    if (specialKeys.has(nk) && nk !== targetKey) continue;
+                    queue.push([cx + dx, cy + dy]);
+                }
+            }
+            return false;
+        };
+        const allReachable = [...specialKeys].every(k => canReach(k));
+        if (!allReachable) return DungeonGenerator.generate(level);
 
         rooms.forEach((room, key) => {
             const [x, y] = key.split(',').map(Number);
@@ -934,11 +1231,17 @@ class GameEngine {
         this.rooms = DungeonGenerator.generate(this.level);
         this.currentRoom = this.rooms.get('0,0');
         this.hasKey = false;
-        this.spawnPlayers();
+        this.spawnPlayers(this.level > 1);
         this.loadRoom();
     }
 
-    spawnPlayers() {
+    spawnPlayers(preservePowerups = false) {
+        // Save powerup state before recreating players
+        const saved = preservePowerups ? this.players.map(p => ({
+            attackType: p.attackType,
+            maxShots: p.maxShots
+        })) : [];
+
         this.entities = [];
         this.worldElement.innerHTML = '';
 
@@ -950,7 +1253,9 @@ class GameEngine {
         p1.domElement.style.backgroundColor = p1Color;
         p1.domElement.style.boxShadow = `0 0 10px ${p1Color}, 0 0 20px ${p1Color}`;
         p1.setColor(p1Color);
+        if (saved[0]) { p1.attackType = saved[0].attackType; p1.maxShots = saved[0].maxShots; }
         p1.updateLivesUI();
+        p1._updateAmmoRing();
 
         this.players = [p1];
         this.entities.push(p1);
@@ -965,7 +1270,9 @@ class GameEngine {
             p2.domElement.style.backgroundColor = p2Color;
             p2.domElement.style.boxShadow = `0 0 10px ${p2Color}, 0 0 20px ${p2Color}`;
             p2.setColor(p2Color);
+            if (saved[1]) { p2.attackType = saved[1].attackType; p2.maxShots = saved[1].maxShots; }
             p2.updateLivesUI();
+            p2._updateAmmoRing();
 
             this.players.push(p2);
             this.entities.push(p2);
@@ -982,12 +1289,25 @@ class GameEngine {
             if (!playerEls.includes(n)) n.remove();
         });
 
+        // Boss room uses special background
+        if (this.currentRoom.type === 'boss') {
+            this.worldElement.style.backgroundImage = "url('assets/arena_boss.png')";
+        } else {
+            this.worldElement.style.backgroundImage = "url('assets/arena.png')";
+        }
+
         this.spawnDoors();
         this.spawnObstacles();
         this.spawnRoomWalls();
 
         if (!this.currentRoom.cleared) {
             this.spawnLevelEntities();
+        } else if (this.currentRoom.type === 'key' && !this.hasKey && this.currentRoom.keySpawnPos) {
+            // Re-spawn the key if player left without picking it up
+            const kp = this.currentRoom.keySpawnPos;
+            const keyItem = new Key(kp.x, kp.y);
+            this.entities.push(keyItem);
+            this.worldElement.appendChild(keyItem.domElement);
         }
 
         document.getElementById('current-level').innerText = `LEVEL: ${this.level}`;
@@ -1001,9 +1321,29 @@ class GameEngine {
             left: { x: 0, y: 300, w: 50, h: 80 },
             right: { x: 800, y: 300, w: 50, h: 80 }
         };
+        const doorImages = {
+            top: 'assets/d_top.png',
+            bottom: 'assets/d_bot.png',
+            left: 'assets/d_sx.png',
+            right: 'assets/d_dx.png'
+        };
 
         for (const [dir, active] of Object.entries(this.currentRoom.doors)) {
             if (!active) continue;
+
+            // PNG door layer
+            const layer = document.createElement('div');
+            layer.classList.add('door-layer');
+            layer.style.backgroundImage = `url('${doorImages[dir]}')`;
+            // Aura: green=open, red=locked, rgb=boss
+            if (active === 'boss') {
+                layer.classList.add('door-aura-rgb');
+            } else {
+                layer.classList.add('door-aura-green');
+            }
+            this.worldElement.appendChild(layer);
+
+            // Collision hitbox
             const pos = positions[dir];
             const door = document.createElement('div');
             door.classList.add('door', 'open');
@@ -1013,8 +1353,13 @@ class GameEngine {
             door.style.height = `${pos.h}px`;
             door.style.transform = 'translate(-50%,-50%)';
             door.dataset.dir = dir;
-            if (this.currentRoom.doors[dir] === 'boss') door.classList.add('rgb-pulse');
+            if (active === 'boss') door.classList.add('rgb-pulse');
             this.worldElement.appendChild(door);
+
+            // Add as entity for projectile bounces
+            const doorEntity = new Entity(pos.x, pos.y, pos.w, pos.h, 'door');
+            doorEntity.domElement.style.display = 'none'; // Hidden, DOM element is separate
+            this.entities.push(doorEntity);
         }
     }
 
@@ -1067,6 +1412,7 @@ class GameEngine {
         if (!this.currentRoom.doors.top) {
             this._addWall(W / 2, wallThickness / 2, W, wallThickness);
         } else {
+            // Door is 80px wide at x=400. Walls cover 0-360 and 440-800
             this._addWall(180, wallThickness / 2, 360, wallThickness);
             this._addWall(620, wallThickness / 2, 360, wallThickness);
         }
@@ -1083,6 +1429,7 @@ class GameEngine {
         if (!this.currentRoom.doors.left) {
             this._addWall(wallThickness / 2, H / 2, wallThickness, H);
         } else {
+            // Door is 80px high at y=300. Walls cover 0-260 and 340-600
             this._addWall(wallThickness / 2, 130, wallThickness, 260);
             this._addWall(wallThickness / 2, 470, wallThickness, 260);
         }
@@ -1091,6 +1438,7 @@ class GameEngine {
         if (!this.currentRoom.doors.right) {
             this._addWall(W - wallThickness / 2, H / 2, wallThickness, H);
         } else {
+            // Door is 80px high at y=300. Walls cover 0-260 and 340-600
             this._addWall(W - wallThickness / 2, 130, wallThickness, 260);
             this._addWall(W - wallThickness / 2, 470, wallThickness, 260);
         }
@@ -1107,51 +1455,50 @@ class GameEngine {
     _findSafeSpot(cx, cy, w, h, fallbacks) {
         const obs = this.entities.filter(e => e.type === 'obstacle');
         const overlaps = (x, y) => obs.some(o => Utils.rectOverlap(x, y, w, h, o));
+
         if (!overlaps(cx, cy)) return { x: cx, y: cy };
+
+        // Try random spots
+        for (let i = 0; i < 100; i++) {
+            const rx = Utils.randomRange(100, CONFIG.CANVAS_WIDTH - 100);
+            const ry = Utils.randomRange(100, CONFIG.CANVAS_HEIGHT - 100);
+            if (!overlaps(rx, ry)) {
+                // Also check distance from players for initial spawn
+                const tooClose = this.players ? this.players.some(p => Utils.distance({ x: rx, y: ry }, p) < 150) : false;
+                if (!tooClose) return { x: rx, y: ry };
+            }
+        }
+
         for (const fb of fallbacks) {
             if (!overlaps(fb.x, fb.y)) return fb;
         }
-        return { x: cx, y: cy }; // last resort
+        return { x: cx, y: cy }; // absolute last resort
     }
 
     spawnLevelEntities() {
         if (this.currentRoom.type === 'normal') {
-            const count = 3 + Math.floor(Math.random() * 2);
+            const enemyCount = 3 + Math.floor(Math.random() * 2);
             const spawned = [];
 
-            for (let i = 0; i < count; i++) {
-                const isZombie = Math.random() < 0.30;
-                let spawnX, spawnY;
-                // Ensure safe zone around ALL players
-                let isTooClose = true;
-                let attempts = 0;
-                while (isTooClose && attempts < 50) {
-                    spawnX = Utils.randomRange(100, CONFIG.CANVAS_WIDTH - 100);
-                    spawnY = Utils.randomRange(100, CONFIG.CANVAS_HEIGHT - 100);
-                    isTooClose = this.players.some(p => Utils.distance({ x: spawnX, y: spawnY }, p) < 150);
-                    attempts++;
-                }
-
-                if (isZombie) {
-                    const safe = this._findSafeSpot(spawnX, spawnY, 40, 40, [
-                        { x: 100, y: 100 }, { x: 700, y: 100 },
-                        { x: 100, y: 500 }, { x: 700, y: 500 }
-                    ]);
-                    const z = new ZombieEnemy(safe.x, safe.y);
-                    z.activate(this.players);
-                    this.entities.push(z);
-                    this.worldElement.appendChild(z.domElement);
-                    spawned.push(z);
+            for (let i = 0; i < enemyCount; i++) {
+                const safe = this._findSafeSpot(Utils.randomRange(100, 700), Utils.randomRange(100, 500), 40, 40, []);
+                const roll = Math.random();
+                let enemy;
+                if (roll < 0.33) {
+                    enemy = new SphereEnemy(safe.x, safe.y);
+                } else if (roll < 0.66) {
+                    enemy = new Enemy(safe.x, safe.y); // Square
                 } else {
-                    const safe = this._findSafeSpot(spawnX, spawnY, 40, 40, [
-                        { x: 100, y: 100 }, { x: 700, y: 100 },
-                        { x: 100, y: 500 }, { x: 700, y: 500 }
-                    ]);
-                    const enemy = new Enemy(safe.x, safe.y);
-                    this.entities.push(enemy);
-                    this.worldElement.appendChild(enemy.domElement);
-                    spawned.push(enemy);
+                    enemy = new ZombieEnemy(safe.x, safe.y); // Diamond
                 }
+                this.entities.push(enemy);
+                this.worldElement.appendChild(enemy.domElement);
+                if (enemy.activate) enemy.activate();
+                else {
+                    enemy.active = true;
+                    enemy.domElement.style.opacity = '1';
+                }
+                spawned.push(enemy);
             }
 
             this.lockDoors();
@@ -1173,7 +1520,8 @@ class GameEngine {
                     tooClose = pDist || dDist;
                     attempts++;
                 }
-                const trap = new Trap(tx, ty);
+                const safe = this._findSafeSpot(tx, ty, 30, 30, []);
+                const trap = new Trap(safe.x, safe.y);
                 this.entities.push(trap);
                 this.worldElement.appendChild(trap.domElement);
             }
@@ -1186,6 +1534,13 @@ class GameEngine {
                 });
             }, 1000);
 
+        } else if (this.currentRoom.isEmpty) {
+            this.unlockDoors();
+            if (Math.random() < 0.20) { // 1/5 chance
+                const ls = new LifeSquare(400, 300);
+                this.entities.push(ls);
+                this.worldElement.appendChild(ls.domElement);
+            }
         } else if (this.currentRoom.type === 'key') {
             const safe = this._findSafeSpot(400, 300, 45, 45, [
                 { x: 200, y: 150 }, { x: 600, y: 150 }
@@ -1193,12 +1548,17 @@ class GameEngine {
             const keyEnemy = new KeyEnemy(safe.x, safe.y);
             this.entities.push(keyEnemy);
             this.worldElement.appendChild(keyEnemy.domElement);
+            // Show bar at 0%, then fill up
+            const mbFill = document.getElementById('miniboss-health-fill');
+            if (mbFill) mbFill.style.width = '0%';
+            document.getElementById('miniboss-health-container').classList.remove('hidden');
             this.lockDoors();
 
             setTimeout(() => {
                 keyEnemy.active = true;
                 keyEnemy.domElement.style.opacity = '1';
                 keyEnemy.domElement.style.transition = 'opacity 0.5s';
+                if (mbFill) mbFill.style.width = '100%';
             }, 1000);
         } else if (this.currentRoom.type === 'boss') {
             const boss = new Boss(400, 300, this.level);
@@ -1206,6 +1566,9 @@ class GameEngine {
             boss.domElement.style.opacity = '0';
             this.entities.push(boss);
             this.worldElement.appendChild(boss.domElement);
+            // Show bar at 0%, then fill up
+            const bFill = document.getElementById('boss-health-fill');
+            if (bFill) bFill.style.width = '0%';
             document.getElementById('boss-health-container').classList.remove('hidden');
             this.lockDoors();
 
@@ -1213,11 +1576,20 @@ class GameEngine {
                 boss.active = true;
                 boss.domElement.style.opacity = '1';
                 boss.domElement.style.transition = 'opacity 0.5s';
+                if (bFill) bFill.style.width = '100%';
             }, 1000);
         } else if (this.currentRoom.type === 'treasure') {
-            const p = new Powerup(400, 300);
-            this.entities.push(p);
-            this.worldElement.appendChild(p.domElement);
+            if (this.multiplayer) {
+                const p1 = new Powerup(300, 300);
+                const p2 = new Powerup(500, 300);
+                this.entities.push(p1, p2);
+                this.worldElement.appendChild(p1.domElement);
+                this.worldElement.appendChild(p2.domElement);
+            } else {
+                const p = new Powerup(400, 300);
+                this.entities.push(p);
+                this.worldElement.appendChild(p.domElement);
+            }
         }
     }
 
@@ -1226,12 +1598,22 @@ class GameEngine {
             d.classList.remove('open');
             d.classList.add('locked');
         });
+        // Switch door aura to red
+        document.querySelectorAll('.door-layer').forEach(l => {
+            l.classList.remove('door-aura-green');
+            l.classList.add('door-aura-red');
+        });
     }
 
     unlockDoors() {
         document.querySelectorAll('.door').forEach(d => {
             d.classList.remove('locked');
             d.classList.add('open');
+        });
+        // Switch door aura to green
+        document.querySelectorAll('.door-layer').forEach(l => {
+            l.classList.remove('door-aura-red');
+            l.classList.add('door-aura-green');
         });
     }
 
@@ -1241,8 +1623,10 @@ class GameEngine {
         this.entities.forEach(ent => {
             if (ent.type === 'player') ent.update(this.input, this);
             if (ent.type === 'enemy') ent.update(this.players, this);
-            if (ent.type === 'projectile') ent.update();
+            if (ent.type === 'projectile') ent.update(this);
             if (ent.type === 'boss' || ent.type === 'key') ent.update(this.players, this);
+            if (ent.type === 'trap') ent.update();
+            if (ent instanceof LifeSquare) ent.update(this);
         });
 
         this.handleCollisions();
@@ -1283,10 +1667,12 @@ class GameEngine {
         // Player vs Trap
         pair = getPair('player', 'trap');
         if (pair) {
-            const [player] = pair;
-            if (!player.dead) {
+            const [player, trap] = pair;
+            if (!player.dead && !player._invincible) {
                 this.createDeathParticles(player.x, player.y, 15);
+                this.createDeathParticles(trap.x, trap.y, 10); // Explosion effect for trap
                 player.die(this);
+                trap.destroy();
             }
             return;
         }
@@ -1345,6 +1731,10 @@ class GameEngine {
         pair = getPair('projectile', 'obstacle');
         if (pair) {
             const [bullet] = pair;
+            if (bullet.isPiercing) {
+                // Already handled in Projectile.update for particles
+                return;
+            }
             this.createSparkParticles(bullet.x, bullet.y, '#4488aa');
             bullet.destroy();
             return;
@@ -1370,15 +1760,24 @@ class GameEngine {
             this.hasKey = true;
             this.score += 500;
             this.showAnnouncement('KEY COLLECTED');
+            // Unlock doors in the key room now that key is picked up
+            this.unlockDoors();
+            this.currentRoom.cleared = true;
             return;
         }
 
-        // Player vs Powerup
+        // Player vs Powerup / LifeSquare
         pair = getPair('player', 'powerup');
         if (pair) {
             const [player, powerup] = pair;
             powerup.destroy();
-            this.applyRandomPowerup(player);
+            if (powerup instanceof LifeSquare) {
+                player.lives++;
+                player.updateLivesUI();
+                this.showAnnouncement('LIFE UP!');
+            } else {
+                this.applyRandomPowerup(player);
+            }
             return;
         }
     }
@@ -1387,11 +1786,15 @@ class GameEngine {
         const types = [
             { type: 'shotgun', maxShots: 2, msg: 'SHOTGUN UNLOCKED' },
             { type: 'piercing', maxShots: 3, msg: 'PIERCING UNLOCKED' },
-            { type: 'quad', maxShots: 3, msg: 'QUAD UNLOCKED' }
+            { type: 'quad', maxShots: 3, msg: 'QUAD UNLOCKED' },
+            { type: 'boomerang', maxShots: 3, msg: 'BOOMERANG UNLOCKED' },
+            { type: 'bounce', maxShots: 3, msg: 'BOUNCE UNLOCKED' }
         ];
-        // Exclude currently active attack type so the player always gets something new
-        const choices = types.filter(t => t.type !== player.attackType);
-        const picked = choices[Math.floor(Math.random() * choices.length)];
+        // Filter out current type; if attackType is 'normal'/undefined, all 5 are available
+        const currentType = player.attackType || 'normal';
+        const choices = types.filter(t => t.type !== currentType);
+        const pool = choices.length > 0 ? choices : types;
+        const picked = pool[Math.floor(Math.random() * pool.length)];
         player.attackType = picked.type;
         player.maxShots = picked.maxShots;
         this.showAnnouncement(picked.msg);
@@ -1425,14 +1828,30 @@ class GameEngine {
         if (!nextRoom) return;
         if (nextRoom.type === 'boss' && !this.hasKey) return;
 
-        this.currentRoom = nextRoom;
-        this.players.forEach(p => {
-            if (dir === 'top') { p.x = 400; p.y = 550; }
-            if (dir === 'bottom') { p.x = 400; p.y = 50; }
-            if (dir === 'left') { p.x = 750; p.y = 300; }
-            if (dir === 'right') { p.x = 50; p.y = 300; }
-        });
-        this.loadRoom();
+        // Door transition animation
+        const overlay = document.getElementById('level-transition-overlay');
+        overlay.classList.remove('hidden');
+        overlay.style.opacity = '1';
+        this.state = 'TRANSITIONING';
+
+        setTimeout(() => {
+            this.currentRoom = nextRoom;
+            // Move ALL players (alive or dead/revived) to the door exit position
+            const spawnPos = { top: { x: 400, y: 550 }, bottom: { x: 400, y: 50 }, left: { x: 750, y: 300 }, right: { x: 50, y: 300 } };
+            const sp = spawnPos[dir];
+            this.players.forEach(p => {
+                p.x = sp.x;
+                p.y = sp.y;
+                p.updatePosition();
+            });
+            this.loadRoom();
+            this.state = 'PLAYING';
+
+            setTimeout(() => {
+                overlay.style.opacity = '0';
+                setTimeout(() => overlay.classList.add('hidden'), 400);
+            }, 200);
+        }, 300);
     }
 
     nextLevel() {
@@ -1489,16 +1908,18 @@ class GameEngine {
     }
 
     onRoomCleared() {
-        this.unlockDoors();
+        // Boss room stays locked — level transition handles exit
+        if (this.currentRoom.type !== 'boss') {
+            this.unlockDoors();
+        }
         if (this.multiplayer) {
             this.players.forEach(p => {
                 if (p.dead && p.lives === 0) {
-                    // Restore 1 life as a reward for the surviving partner
                     p.lives = 1;
                     p.updateLivesUI();
                     p.revive();
-                    p.x = CONFIG.CANVAS_WIDTH / 2;
-                    p.y = CONFIG.CANVAS_HEIGHT / 2;
+                    // p.x = CONFIG.CANVAS_WIDTH / 2;
+                    // p.y = CONFIG.CANVAS_HEIGHT / 2;
                     if (!this.entities.includes(p)) this.entities.push(p);
                 }
             });
@@ -1520,7 +1941,8 @@ class GameEngine {
     }
 
     executeKeyDeath(enemy) {
-        // Explosion for 0.5s then spawn key
+        // Explosion for 0.5s then spawn key — store position for persistence
+        this.currentRoom.keySpawnPos = { x: enemy.x, y: enemy.y };
         this.createDeathParticles(enemy.x, enemy.y, 20);
         setTimeout(() => {
             enemy.destroy();
@@ -1531,7 +1953,13 @@ class GameEngine {
     }
 
     executeBossDeath(boss) {
-        // Multiple explosions for 1s
+        this.state = 'BOSS_DYING';
+
+        // Drain health bar to 0
+        const bFill = document.getElementById('boss-health-fill');
+        if (bFill) bFill.style.width = '0%';
+
+        // Phase 1: Explosion particles for 1.5s (boss still visible)
         const interval = setInterval(() => {
             this.createDeathParticles(
                 boss.x + Utils.randomRange(-50, 50),
@@ -1541,25 +1969,47 @@ class GameEngine {
         }, 100);
 
         setTimeout(() => {
+            // Phase 2: Boss destroyed, show announcement ABOVE fade
             clearInterval(interval);
             boss.destroy();
             this.score += 2000;
             document.getElementById('boss-health-container').classList.add('hidden');
             this.showAnnouncement('LEVEL COMPLETED!');
 
-            // Black transition
-            const overlay = document.getElementById('level-transition-overlay');
-            overlay.classList.remove('hidden');
-            overlay.style.opacity = '1';
+            // Disintegration effect
+            for (let i = 0; i < 40; i++) {
+                const p = document.createElement('div');
+                p.classList.add('particle');
+                p.style.width = '10px';
+                p.style.height = '10px';
+                p.style.borderRadius = '2px';
+                p.style.background = 'var(--neon-cyan)';
+                p.style.boxShadow = '0 0 10px var(--neon-cyan)';
+                p.style.left = `${boss.x + Utils.randomRange(-60, 60)}px`;
+                p.style.top = `${boss.y + Utils.randomRange(-60, 60)}px`;
+                p.style.setProperty('--tx', `${Utils.randomRange(-30, 30)}px`);
+                p.style.setProperty('--ty', `${Utils.randomRange(-400, -800)}px`);
+                this.worldElement.appendChild(p);
+                setTimeout(() => p.remove(), 1000);
+            }
 
+            // Phase 3: Black fade after 0.5s
             setTimeout(() => {
-                this.nextLevel();
+                const overlay = document.getElementById('level-transition-overlay');
+                overlay.classList.remove('hidden');
+                overlay.style.opacity = '1';
+
+                // Phase 4: Wait 2.5s, then load next level
                 setTimeout(() => {
-                    overlay.style.opacity = '0';
-                    setTimeout(() => overlay.classList.add('hidden'), 500);
-                }, 1000);
-            }, 1500);
-        }, 1000);
+                    this.nextLevel();
+                    setTimeout(() => {
+                        overlay.style.opacity = '0';
+                        setTimeout(() => overlay.classList.add('hidden'), 500);
+                        if (this.state === 'BOSS_DYING') this.state = 'PLAYING';
+                    }, 800);
+                }, 2500);
+            }, 500);
+        }, 2500); // 1s extra duration as requested (1500 -> 2500)
     }
 
     pauseGame() {

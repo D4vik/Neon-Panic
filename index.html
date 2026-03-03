@@ -14,7 +14,7 @@
         <div id="hud">
             <div class="hud-column hud-left">
                 <div id="p2-stats" class="player-hud hidden">
-                    <div class="label">P2 (YELLOW)</div>
+                    <div class="label">P2 </div>
                     <div id="p2-lives" class="lives-container">
                         <div class="life-square p2-life"></div>
                         <div class="life-square p2-life"></div>
@@ -30,7 +30,7 @@
             </div>
             <div class="hud-column hud-right">
                 <div id="p1-stats" class="player-hud">
-                    <div class="label">P1 (GREEN)</div>
+                    <div class="label">P1 </div>
                     <div id="p1-lives" class="lives-container">
                         <div class="life-square p1-life"></div>
                         <div class="life-square p1-life"></div>
@@ -42,9 +42,17 @@
 
         <!-- Boss Health Bar (Dark Souls Style) -->
         <div id="boss-health-container" class="hidden">
-            <div class="boss-name">NEON ABYSS</div>
+            <div class="boss-name">NEON BEHEMOT</div>
             <div class="boss-bar-bg">
                 <div id="boss-health-fill"></div>
+            </div>
+        </div>
+
+        <!-- Miniboss Health Bar -->
+        <div id="miniboss-health-container" class="hidden">
+            <div class="miniboss-name">KEY GUARDIAN</div>
+            <div class="miniboss-bar-bg">
+                <div id="miniboss-health-fill"></div>
             </div>
         </div>
 
@@ -60,8 +68,8 @@
             <!-- Start Screen -->
             <div id="start-screen" class="menu-content">
                 <h1 class="neon-text">NEON PANIC</h1>
-                <div class="pulse-text">PRESS START</div>
                 <button id="btn-start" class="neon-button">START</button>
+                <div class="flicker-warning">WARNING: This game contains flashing lights and high-contrast colors.</div>
             </div>
 
             <!-- Main Menu -->
@@ -87,10 +95,6 @@
                 <div class="option-item">
                     <span>P2 COLOR</span>
                     <input type="color" id="p2-color-picker" value="#ffff00">
-                </div>
-                <div class="option-item">
-                    <span>KEY REMAPPING</span>
-                    <button class="neon-button-small">CONFIGURE</button>
                 </div>
                 <button id="btn-options-back" class="neon-button">BACK</button>
             </div>
