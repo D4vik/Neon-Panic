@@ -152,10 +152,10 @@ class Projectile extends Entity {
         }
     }
 
-    update(game) {
+    update(game, dtScale) {
         this._lastPos = { x: this.x, y: this.y };
-        this.x += this.vx;
-        this.y += this.vy;
+        this.x += this.vx * dtScale;
+        this.y += this.vy * dtScale;
 
         const dist = Math.sqrt((this.x - this._lastPos.x) ** 2 + (this.y - this._lastPos.y) ** 2);
         this.traveled += dist;
@@ -192,46 +192,41 @@ class Projectile extends Entity {
             const barriers = game.entities.filter(e => e.type === 'obstacle' || e.type === 'door');
             for (const o of barriers) {
                 if (this.checkCollision(o)) {
+                    // Axis detection based on overlap depth
+                    const dx = this.x - o.x;
+                    const dy = this.y - o.y;
+                    const overlapX = (this.width / 2 + o.width / 2) - Math.abs(dx);
+                    const overlapY = (this.height / 2 + o.height / 2) - Math.abs(dy);
+
+                    if (overlapX < overlapY) {
+                        this.vx *= -1;
+                        this.x += (dx > 0 ? overlapX : -overlapX);
+                    } else {
+                        this.vy *= -1;
+                        this.y += (dy > 0 ? overlapY : -overlapY);
+                    }
+
                     this.bounces++;
                     if (this.bounces >= 3) {
                         this.destroy();
                         break;
                     }
-                    // Simple reflection
-                    const dx = this.x - o.x;
-                    const dy = this.y - o.y;
-                    if (Math.abs(dx) > Math.abs(dy)) {
-                        this.vx *= -1;
-                    } else {
-                        this.vy *= -1;
-                    }
-                    // Random jitter
-                    this.vx += (Math.random() - 0.5) * 2;
-                    this.vy += (Math.random() - 0.5) * 2;
-                    // Normalize speed
+
+                    // Slight jitter and normalize
+                    this.vx += (Math.random() - 0.5);
+                    this.vy += (Math.random() - 0.5);
                     const mag = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
                     this.vx = (this.vx / mag) * CONFIG.BULLET_SPEED;
                     this.vy = (this.vy / mag) * CONFIG.BULLET_SPEED;
-
-                    // Push out
-                    this.x += this.vx * 2;
-                    this.y += this.vy * 2;
+                    break; // Only bounce off one thing per frame
                 }
             }
         }
 
         this.updatePosition();
-        if (this.x < 0 || this.x > CONFIG.CANVAS_WIDTH ||
-            this.y < 0 || this.y > CONFIG.CANVAS_HEIGHT) {
-            if (this.isBounce && this.bounces < 3) {
-                if (this.x < 0 || this.x > CONFIG.CANVAS_WIDTH) this.vx *= -1;
-                if (this.y < 0 || this.y > CONFIG.CANVAS_HEIGHT) this.vy *= -1;
-                this.bounces++;
-                this.x = Utils.clamp(this.x, 5, CONFIG.CANVAS_WIDTH - 5);
-                this.y = Utils.clamp(this.y, 5, CONFIG.CANVAS_HEIGHT - 5);
-            } else {
-                this.destroy();
-            }
+        if (this.x < -20 || this.x > CONFIG.CANVAS_WIDTH + 20 ||
+            this.y < -20 || this.y > CONFIG.CANVAS_HEIGHT + 20) {
+            this.destroy();
         }
     }
 
@@ -251,10 +246,14 @@ class Projectile extends Entity {
         } else if (this.isBounce) {
             if (entity.type === 'enemy' || entity.type === 'boss') {
                 this.bounces++;
-                if (this.bounces >= 3) this.destroy();
-                else {
+                if (this.bounces >= 3) {
+                    this.destroy();
+                } else {
+                    // Simple reflection and push-out for enemies
                     this.vx *= -1;
                     this.vy *= -1;
+                    this.x += this.vx * 2;
+                    this.y += this.vy * 2;
                 }
             }
             return 1;
@@ -267,7 +266,7 @@ class Projectile extends Entity {
 
 // --- Player ---
 class Player extends Entity {
-    constructor(id, x, y, controls) {
+    constructor(id, x, y, controls, maxLives) {
         super(x, y, 24, 24, 'player');
         this.id = id;
         this.controls = controls;
@@ -278,7 +277,8 @@ class Player extends Entity {
         this.reloading = false;
         this.fireButtonDown = false; // Track button state for single-fire
         this.health = 1;
-        this.lives = 3;
+        this.lives = maxLives;
+        this.maxLives = maxLives;
         this._color = id === 'p1' ? '#39FF14' : '#ffff00';
         this.attackType = 'normal';
         this.maxShots = CONFIG.MAX_SHOTS;
@@ -365,7 +365,7 @@ class Player extends Entity {
         this._reloadAnimFrame = requestAnimationFrame(animate);
     }
 
-    update(input, game) {
+    update(input, game, dtScale) {
         if (this.dead) return;
 
         let dx = 0, dy = 0;
@@ -376,8 +376,8 @@ class Player extends Entity {
 
         if (dx !== 0 || dy !== 0) {
             const mag = Math.sqrt(dx * dx + dy * dy);
-            this.x += (dx / mag) * this.speed;
-            this.y += (dy / mag) * this.speed;
+            this.x += (dx / mag) * this.speed * dtScale;
+            this.y += (dy / mag) * this.speed * dtScale;
             this.aimAngle = Math.atan2(dy, dx);
         }
 
@@ -403,7 +403,7 @@ class Player extends Entity {
         const obstacles = game.entities.filter(e => e.type === 'obstacle');
         this._resolveEntities(obstacles);
 
-        // Trail
+        // Trail - frequency already handles its own ticking but we could scale it
         this._spawnTrail(game.worldElement, this._color, 3);
 
         this._updateAmmoRing();
@@ -541,10 +541,10 @@ class Enemy extends Entity {
         }, 1000);
     }
 
-    update(players, game) {
+    update(players, game, dtScale) {
         if (!this.active) return;
 
-        this.moveTimer--;
+        this.moveTimer -= dtScale;
         if (this.moveTimer <= 0) {
             const angle = Math.random() * Math.PI * 2;
             this.direction.x = Math.cos(angle);
@@ -552,12 +552,12 @@ class Enemy extends Entity {
             this.moveTimer = Utils.randomRange(30, 90);
         }
 
-        this.dashTimer--;
+        this.dashTimer -= dtScale;
         const spd = this.dashTimer > 0 ? this.speed * 2.5 : this.speed;
         if (this.dashTimer <= -90) this.dashTimer = 25;
 
-        const nx = this.x + this.direction.x * spd;
-        const ny = this.y + this.direction.y * spd;
+        const nx = this.x + this.direction.x * spd * dtScale;
+        const ny = this.y + this.direction.y * spd * dtScale;
 
         // Try full move, then axis-separated fallback (wall sliding)
         const obstacles = game.entities.filter(e => e.type === 'obstacle');
@@ -594,7 +594,7 @@ class Enemy extends Entity {
         this.y = Utils.clamp(this.y, 20, CONFIG.CANVAS_HEIGHT - 20);
 
         // Shooting
-        this.shootTimer--;
+        this.shootTimer -= dtScale;
         if (this.shootTimer <= 0) {
             const alivePlayers = players.filter(p => !p.dead);
             if (alivePlayers.length > 0) {
@@ -636,13 +636,13 @@ class ZombieEnemy extends Entity {
         }, 1000);
     }
 
-    update(players, game) {
+    update(players, game, dtScale) {
         if (!this.active) return;
 
         // Circular movement logic
-        this.moveAngle += 0.02 * this.circleDir;
-        const vx = Math.cos(this.moveAngle) * this.speed;
-        const vy = Math.sin(this.moveAngle) * this.speed;
+        this.moveAngle += 0.02 * this.circleDir * dtScale;
+        const vx = Math.cos(this.moveAngle) * this.speed * dtScale;
+        const vy = Math.sin(this.moveAngle) * this.speed * dtScale;
 
         const nx = this.x + vx;
         const ny = this.y + vy;
@@ -660,7 +660,7 @@ class ZombieEnemy extends Entity {
         }
 
         // 4-way cross shooting
-        this.shootTimer--;
+        this.shootTimer -= dtScale;
         if (this.shootTimer <= 0) {
             const angles = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
             angles.forEach(angle => {
@@ -708,13 +708,13 @@ class SphereEnemy extends Entity {
         }, 1000);
     }
 
-    update(players, game) {
+    update(players, game, dtScale) {
         if (!this.active) return;
 
         // Circular movement logic
-        this.moveAngle += 0.02 * this.circleDir;
-        const vx = Math.cos(this.moveAngle) * this.speed;
-        const vy = Math.sin(this.moveAngle) * this.speed;
+        this.moveAngle += 0.02 * this.circleDir * dtScale;
+        const vx = Math.cos(this.moveAngle) * this.speed * dtScale;
+        const vy = Math.sin(this.moveAngle) * this.speed * dtScale;
 
         const nx = this.x + vx;
         const ny = this.y + vy;
@@ -731,7 +731,7 @@ class SphereEnemy extends Entity {
             this.moveAngle += Math.PI; // Flip angle
         }
 
-        this.shootTimer--;
+        this.shootTimer -= dtScale;
         if (this.shootTimer <= 0) {
             this.shoot(game);
             this.shootTimer = 200 + Math.random() * 100;
@@ -780,24 +780,24 @@ class KeyEnemy extends Entity {
         this.domElement.style.opacity = '0';
     }
 
-    update(players, game) {
+    update(players, game, dtScale) {
         if (!this.active) return;
 
         // Random direction change
-        this.dirChangeTimer--;
+        this.dirChangeTimer -= dtScale;
         if (this.dirChangeTimer <= 0) {
             this.circleDir *= -1;
             this.dirChangeTimer = Utils.randomRange(120, 240);
         }
 
-        this.moveAngle += 0.025 * this.circleDir;
-        this.x += Math.cos(this.moveAngle) * this.speed;
-        this.y += Math.sin(this.moveAngle) * this.speed;
+        this.moveAngle += 0.025 * this.circleDir * dtScale;
+        this.x += Math.cos(this.moveAngle) * this.speed * dtScale;
+        this.y += Math.sin(this.moveAngle) * this.speed * dtScale;
 
         this.x = Utils.clamp(this.x, 60, CONFIG.CANVAS_WIDTH - 60);
         this.y = Utils.clamp(this.y, 60, CONFIG.CANVAS_HEIGHT - 60);
 
-        this.shootTimer--;
+        this.shootTimer -= dtScale;
         if (this.shootTimer <= 0) {
             // Random choice between cardinal and diagonal
             const useCardinal = Math.random() < 0.5;
@@ -866,17 +866,17 @@ class Boss extends Entity {
         };
     }
 
-    update(players, game) {
+    update(players, game, dtScale) {
         if (!this.active) return;
 
         // Random direction change
-        this.dirChangeTimer--;
+        this.dirChangeTimer -= dtScale;
         if (this.dirChangeTimer <= 0) {
             this.moveDir *= -1;
             this.dirChangeTimer = Utils.randomRange(80, 200);
         }
 
-        this.moveTimer--;
+        this.moveTimer -= dtScale;
         if (this.moveTimer <= 0) {
             const cx = CONFIG.CANVAS_WIDTH / 2 - this.x;
             const cy = CONFIG.CANVAS_HEIGHT / 2 - this.y;
@@ -890,12 +890,12 @@ class Boss extends Entity {
             this.moveTimer = Utils.randomRange(40, 100);
         }
 
-        this.x += Math.cos(this.moveAngle) * this.moveSpeed;
-        this.y += Math.sin(this.moveAngle) * this.moveSpeed;
+        this.x += Math.cos(this.moveAngle) * this.moveSpeed * dtScale;
+        this.y += Math.sin(this.moveAngle) * this.moveSpeed * dtScale;
         this.x = Utils.clamp(this.x, 150, CONFIG.CANVAS_WIDTH - 150);
         this.y = Utils.clamp(this.y, 100, CONFIG.CANVAS_HEIGHT - 100);
 
-        this.attackTimer--;
+        this.attackTimer -= dtScale;
         if (this.attackTimer <= 0) {
             this.executeRandomAttack(game, players);
             this.attackTimer = 180;
@@ -988,12 +988,12 @@ class LifeSquare extends Entity {
         this.tick = 0;
     }
 
-    update(game) {
-        this.tick++;
-        if (this.tick % 30 === 0) {
+    update(game, dtScale) {
+        this.tick += dtScale;
+        if (Math.floor(this.tick / 30) !== Math.floor((this.tick - dtScale) / 30)) {
             const p1Color = document.getElementById('p1-color-picker').value;
             const p2Color = document.getElementById('p2-color-picker').value;
-            const color = (this.tick / 30) % 2 === 0 ? p1Color : p2Color;
+            const color = Math.floor(this.tick / 30) % 2 === 0 ? p1Color : p2Color;
             this.domElement.style.background = color;
             this.domElement.style.boxShadow = `0 0 15px ${color}`;
         }
@@ -1008,9 +1008,10 @@ class Trap extends Entity {
         this.domElement.classList.add('trap');
     }
 
-    update() {
-        const rot = (performance.now() / 10) % 360;
-        this.domElement.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
+    update(dtScale) {
+        if (!this.rotation) this.rotation = 0;
+        this.rotation = (this.rotation + 5 * dtScale) % 360;
+        this.domElement.style.transform = `translate(-50%, -50%) rotate(${this.rotation}deg)`;
         this.updatePosition();
     }
 }
@@ -1141,6 +1142,8 @@ class GameEngine {
         this.rooms = null;
         this.currentRoom = null;
         this.hasKey = false;
+        this.difficulty = 'NORMAL';
+        this.maxLives = 6;
 
         this.setupEventListeners();
         this.initLoop();
@@ -1156,30 +1159,19 @@ class GameEngine {
         document.getElementById('btn-start').onclick = () => this.showMainMenu();
         document.getElementById('btn-options').onclick = () => this.showOptionsMenu();
         document.getElementById('btn-options-back').onclick = () => this.showMainMenu();
-        document.getElementById('btn-single').onclick = () => this.startGame(false);
-        document.getElementById('btn-multi').onclick = () => this.startGame(true);
+        document.getElementById('btn-single').onclick = () => this.showDifficultyMenu(false);
+        document.getElementById('btn-multi').onclick = () => this.showDifficultyMenu(true);
+        document.getElementById('btn-difficulty-normal').onclick = () => this.startGame(this.multiplayer, 'NORMAL');
+        document.getElementById('btn-difficulty-hard').onclick = () => this.startGame(this.multiplayer, 'HARD');
+        document.getElementById('btn-difficulty-back').onclick = () => this.showMainMenu();
         document.getElementById('btn-resume').onclick = () => this.resumeGame();
         document.getElementById('btn-restart').onclick = () => this.doRestart();
         document.getElementById('btn-pause-exit').onclick = () => location.reload();
         document.getElementById('btn-game-over-exit').onclick = () => location.reload();
 
-        // Tutorial buttons
-        const showTutorial = () => {
-            document.getElementById('main-menu').classList.add('hidden');
-            document.getElementById('pause-menu').classList.add('hidden');
-            document.getElementById('tutorial-panel').classList.remove('hidden');
-        };
-        const hideTutorial = () => {
-            document.getElementById('tutorial-panel').classList.add('hidden');
-            if (this.state === 'PAUSED') {
-                document.getElementById('pause-menu').classList.remove('hidden');
-            } else {
-                document.getElementById('main-menu').classList.remove('hidden');
-            }
-        };
-        document.getElementById('btn-tutorial-main').onclick = showTutorial;
-        document.getElementById('btn-tutorial-pause').onclick = showTutorial;
-        document.getElementById('btn-tutorial-back').onclick = hideTutorial;
+        document.getElementById('btn-tutorial-main').onclick = () => this.showTutorial();
+        document.getElementById('btn-tutorial-pause').onclick = () => this.showTutorial();
+        document.getElementById('btn-tutorial-back').onclick = () => this.hideTutorial();
 
         // Color pickers — also update ammo ring
         document.getElementById('p1-color-picker').onchange = (e) => {
@@ -1211,6 +1203,7 @@ class GameEngine {
         this.state = 'MENU';
         document.getElementById('start-screen').classList.add('hidden');
         document.getElementById('options-menu').classList.add('hidden');
+        document.getElementById('difficulty-menu').classList.add('hidden');
         document.getElementById('main-menu').classList.remove('hidden');
     }
 
@@ -1219,11 +1212,20 @@ class GameEngine {
         document.getElementById('options-menu').classList.remove('hidden');
     }
 
-    startGame(multi) {
+    showDifficultyMenu(multi) {
         this.multiplayer = multi;
+        document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('difficulty-menu').classList.remove('hidden');
+    }
+
+    startGame(multi, diff) {
+        this.multiplayer = multi;
+        this.difficulty = diff;
+        this.maxLives = diff === 'HARD' ? 3 : 6;
         this.state = 'PLAYING';
         document.getElementById('menu-overlay').classList.add('hidden');
         document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('difficulty-menu').classList.add('hidden');
         this.resetGame();
     }
 
@@ -1242,8 +1244,17 @@ class GameEngine {
         document.getElementById('game-over-menu').classList.add('hidden');
         document.getElementById('menu-overlay').classList.add('hidden');
         document.getElementById('boss-health-container').classList.add('hidden');
+        document.getElementById('miniboss-health-container').classList.add('hidden');
         this.initDungeon();
         this.showAnnouncement('LEVEL 1');
+    }
+
+    refillLives() {
+        this.players.forEach(p => {
+            p.lives = p.maxLives;
+            p.updateLivesUI();
+            if (p.dead) p.revive();
+        });
     }
 
     initDungeon() {
@@ -1267,7 +1278,7 @@ class GameEngine {
         const p1 = new Player('p1', 400, 300, {
             up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
             shoot: 'Space', altShoot: 'Enter'
-        });
+        }, this.maxLives);
         const p1Color = document.getElementById('p1-color-picker').value;
         p1.domElement.style.backgroundColor = p1Color;
         p1.domElement.style.boxShadow = `0 0 10px ${p1Color}, 0 0 20px ${p1Color}`;
@@ -1284,7 +1295,7 @@ class GameEngine {
             const p2 = new Player('p2', 450, 300, {
                 up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD',
                 shoot: 'CapsLock', altShoot: 'Digit1'
-            });
+            }, this.maxLives);
             const p2Color = document.getElementById('p2-color-picker').value;
             p2.domElement.style.backgroundColor = p2Color;
             p2.domElement.style.boxShadow = `0 0 10px ${p2Color}, 0 0 20px ${p2Color}`;
@@ -1346,6 +1357,12 @@ class GameEngine {
             left: 'assets/d_sx.png',
             right: 'assets/d_dx.png'
         };
+        const bossDoorImages = {
+            top: 'assets/b_top.png',
+            bottom: 'assets/b_bot.png',
+            left: 'assets/b_sx.png',
+            right: 'assets/b_dx.png'
+        };
 
         for (const [dir, active] of Object.entries(this.currentRoom.doors)) {
             if (!active) continue;
@@ -1353,7 +1370,8 @@ class GameEngine {
             // PNG door layer
             const layer = document.createElement('div');
             layer.classList.add('door-layer');
-            layer.style.backgroundImage = `url('${doorImages[dir]}')`;
+            const img = (active === 'boss') ? bossDoorImages[dir] : doorImages[dir];
+            layer.style.backgroundImage = `url('${img}')`;
             // Aura: green=open, red=locked, rgb=boss
             if (active === 'boss') {
                 layer.classList.add('door-aura-rgb');
@@ -1636,16 +1654,16 @@ class GameEngine {
         });
     }
 
-    update() {
+    update(dtScale) {
         if (this.state !== 'PLAYING') return;
 
         this.entities.forEach(ent => {
-            if (ent.type === 'player') ent.update(this.input, this);
-            if (ent.type === 'enemy') ent.update(this.players, this);
-            if (ent.type === 'projectile') ent.update(this);
-            if (ent.type === 'boss' || ent.type === 'key') ent.update(this.players, this);
-            if (ent.type === 'trap') ent.update();
-            if (ent instanceof LifeSquare) ent.update(this);
+            if (ent.type === 'player') ent.update(this.input, this, dtScale);
+            else if (ent.type === 'enemy') ent.update(this.players, this, dtScale);
+            else if (ent.type === 'projectile') ent.update(this, dtScale);
+            else if (ent.type === 'boss' || ent.type === 'key') ent.update(this.players, this, dtScale);
+            else if (ent.type === 'trap') ent.update(dtScale);
+            else if (ent instanceof LifeSquare) ent.update(this, dtScale);
         });
 
         this.handleCollisions();
@@ -1793,12 +1811,15 @@ class GameEngine {
         pair = getPair('player', 'powerup');
         if (pair) {
             const [player, powerup] = pair;
-            powerup.destroy();
             if (powerup instanceof LifeSquare) {
-                player.lives++;
-                player.updateLivesUI();
-                this.showAnnouncement('LIFE UP!');
+                if (player.lives < player.maxLives) {
+                    player.lives++;
+                    player.updateLivesUI();
+                    this.showAnnouncement('LIFE UP!');
+                    powerup.destroy();
+                }
             } else {
+                powerup.destroy();
                 this.applyRandomPowerup(player);
             }
             return;
@@ -1827,6 +1848,7 @@ class GameEngine {
 
     handleDoors() {
         if (!this.currentRoom.cleared) return;
+        let nearBossDoor = false;
         this.players.forEach(p => {
             document.querySelectorAll('.door.open').forEach(d => {
                 const br = d.getBoundingClientRect();
@@ -1834,10 +1856,14 @@ class GameEngine {
                 const dx = br.left - gr.left + br.width / 2;
                 const dy = br.top - gr.top + br.height / 2;
                 if (Math.abs(p.x - dx) < 40 && Math.abs(p.y - dy) < 40) {
+                    if (this.currentRoom.doors[d.dataset.dir] === 'boss' && !this.hasKey) {
+                        nearBossDoor = true;
+                    }
                     this.changeRoom(d.dataset.dir);
                 }
             });
         });
+        if (!nearBossDoor) this.hideKeyHint();
     }
 
     changeRoom(dir) {
@@ -1849,7 +1875,12 @@ class GameEngine {
 
         const nextRoom = this.rooms.get(`${x},${y}`);
         if (!nextRoom) return;
-        if (nextRoom.type === 'boss' && !this.hasKey) return;
+
+        if (nextRoom.type === 'boss' && !this.hasKey) {
+            this.showKeyHint();
+            return;
+        }
+        this.hideKeyHint();
 
         // Door transition animation
         const overlay = document.getElementById('level-transition-overlay');
@@ -1880,9 +1911,19 @@ class GameEngine {
     nextLevel() {
         this.level++;
         // Reload all players to max lives
-        this.players.forEach(p => p.resetLives());
+        this.refillLives();
         this.showAnnouncement(`LEVEL ${this.level}`);
         this.initDungeon();
+    }
+
+    showKeyHint() {
+        const hint = document.getElementById('key-hint-layer');
+        if (hint) hint.classList.remove('hidden');
+    }
+
+    hideKeyHint() {
+        const hint = document.getElementById('key-hint-layer');
+        if (hint) hint.classList.add('hidden');
     }
 
     showAnnouncement(text) {
@@ -2077,10 +2118,36 @@ class GameEngine {
         this.state = 'PLAYING';
         document.getElementById('menu-overlay').classList.add('hidden');
         document.getElementById('pause-menu').classList.add('hidden');
+        document.getElementById('tutorial-panel').classList.add('hidden');
+    }
+
+    showTutorial() {
+        // Ensure overlay is visible
+        document.getElementById('menu-overlay').classList.remove('hidden');
+        document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('pause-menu').classList.add('hidden');
+        document.getElementById('options-menu').classList.add('hidden');
+        document.getElementById('tutorial-panel').classList.remove('hidden');
+    }
+
+    hideTutorial() {
+        document.getElementById('tutorial-panel').classList.add('hidden');
+        if (this.state === 'PAUSED') {
+            document.getElementById('pause-menu').classList.remove('hidden');
+        } else {
+            document.getElementById('main-menu').classList.remove('hidden');
+        }
     }
 
     initLoop() {
-        const loop = () => { this.update(); requestAnimationFrame(loop); };
+        let lastTime = performance.now();
+        const loop = (now) => {
+            const dt = now - lastTime;
+            lastTime = now;
+            const dtScale = dt / 16.67; // Normalized to 60fps
+            this.update(Math.min(dtScale, 2)); // Cap at 2 to prevent huge jumps
+            requestAnimationFrame(loop);
+        };
         requestAnimationFrame(loop);
     }
 }
