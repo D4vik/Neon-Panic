@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Neon Panic - Cyber Dungeon Crawler</title>
+    <title>Neon Panic - Cyberpunk Dungeon Crawler</title>
     <link rel="stylesheet" href="style.css">
 </head>
 
@@ -78,7 +78,8 @@
                 <button id="btn-single" class="neon-button">SINGLE PLAYER</button>
                 <button id="btn-multi" class="neon-button">MULTIPLAYER</button>
                 <button id="btn-options" class="neon-button">OPTIONS</button>
-                <button id="btn-exit" class="neon-button">EXIT</button>
+                <button id="btn-tutorial-main" class="neon-button">TUTORIAL</button>
+                <!-- <button id="btn-exit" class="neon-button">EXIT</button> -->
             </div>
 
             <!-- Options Menu -->
@@ -103,6 +104,7 @@
             <div id="pause-menu" class="menu-content hidden">
                 <h2 class="neon-text-small">PAUSED</h2>
                 <button id="btn-resume" class="neon-button">RESUME</button>
+                <button id="btn-tutorial-pause" class="neon-button">TUTORIAL</button>
                 <button id="btn-pause-exit" class="neon-button">EXIT TO MENU</button>
             </div>
 
@@ -117,6 +119,27 @@
                     <button id="btn-restart" class="neon-button">RESTART</button>
                     <button id="btn-game-over-exit" class="neon-button">MAIN MENU</button>
                 </div>
+            </div>
+
+            <!-- Tutorial Panel -->
+            <div id="tutorial-panel" class="menu-content hidden">
+                <h2 class="neon-text-small">TUTORIAL</h2>
+                <div class="tutorial-content">
+                    <div class="tutorial-section">
+                        <h3>P1 CONTROLS</h3>
+                        <p>MOVE: Arrow Keys</p>
+                        <p>SHOOT: Space / Enter</p>
+                    </div>
+                    <div class="tutorial-section">
+                        <h3>P2 CONTROLS</h3>
+                        <p>MOVE: W A S D</p>
+                        <p>SHOOT: CapsLock / 1</p>
+                    </div>
+                    <div class="tutorial-objective">
+                        <p>"Find the RGB key in order to enter into the RGB door and fight the boss"</p>
+                    </div>
+                </div>
+                <button id="btn-tutorial-back" class="neon-button">BACK</button>
             </div>
         </div>
     </div>

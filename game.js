@@ -175,7 +175,7 @@ class Projectile extends Entity {
         }
 
         if (this.isBoomerang) {
-            if (!this.returning && this.traveled > 200) {
+            if (!this.returning && this.traveled > 250) {
                 this.returning = true;
             }
             if (this.returning && this.owner) {
@@ -745,7 +745,7 @@ class SphereEnemy extends Entity {
         this.y = Utils.clamp(this.y, 20, CONFIG.CANVAS_HEIGHT - 20);
 
         // Trail
-        this._spawnTrail(game.worldElement, '#00ccff', 4); // Blue trail
+        this._spawnTrail(game.worldElement, '#cc0022', 4); // Blue trail
         this.updatePosition();
     }
 
@@ -1074,8 +1074,9 @@ class DungeonGenerator {
         rooms.get(`${keyCoord[0]},${keyCoord[1]}`).type = 'key';
         rooms.get(`${treasureCoord[0]},${treasureCoord[1]}`).type = 'treasure';
 
-        // 1/4 of total rooms (excluding start) should be empty
-        const emptyCount = Math.floor((roomCoords.length - 1) / 4);
+        // 1/4 of normal rooms (excluding special ones) should be empty
+        const normalRoomCount = normalCoords.length;
+        const emptyCount = Math.max(1, Math.floor(normalRoomCount / 4));
         for (let i = 0; i < emptyCount; i++) {
             if (normalCoords.length === 0) break;
             const picked = normalCoords.splice(Math.floor(Math.random() * normalCoords.length), 1)[0];
@@ -1161,6 +1162,24 @@ class GameEngine {
         document.getElementById('btn-restart').onclick = () => this.doRestart();
         document.getElementById('btn-pause-exit').onclick = () => location.reload();
         document.getElementById('btn-game-over-exit').onclick = () => location.reload();
+
+        // Tutorial buttons
+        const showTutorial = () => {
+            document.getElementById('main-menu').classList.add('hidden');
+            document.getElementById('pause-menu').classList.add('hidden');
+            document.getElementById('tutorial-panel').classList.remove('hidden');
+        };
+        const hideTutorial = () => {
+            document.getElementById('tutorial-panel').classList.add('hidden');
+            if (this.state === 'PAUSED') {
+                document.getElementById('pause-menu').classList.remove('hidden');
+            } else {
+                document.getElementById('main-menu').classList.remove('hidden');
+            }
+        };
+        document.getElementById('btn-tutorial-main').onclick = showTutorial;
+        document.getElementById('btn-tutorial-pause').onclick = showTutorial;
+        document.getElementById('btn-tutorial-back').onclick = hideTutorial;
 
         // Color pickers — also update ammo ring
         document.getElementById('p1-color-picker').onchange = (e) => {
@@ -1687,13 +1706,17 @@ class GameEngine {
 
                 enemy.hp -= damage;
                 if (enemy.hp <= 0) {
-                    this.createDeathParticles(enemy.x, enemy.y);
                     if (enemy instanceof KeyEnemy) {
                         enemy.die(this);
                     } else {
-                        enemy.destroy();
+                        this.executeEnemyDeath(enemy);
                     }
                     this.score += 100;
+                    if (Math.random() < 0.25) {
+                        const life = new LifeSquare(enemy.x, enemy.y);
+                        this.entities.push(life);
+                        this.worldElement.appendChild(life.domElement);
+                    }
                 }
             }
             return;
@@ -1731,8 +1754,8 @@ class GameEngine {
         pair = getPair('projectile', 'obstacle');
         if (pair) {
             const [bullet] = pair;
-            if (bullet.isPiercing) {
-                // Already handled in Projectile.update for particles
+            if (bullet.isPiercing || bullet.isBounce) {
+                // Already handled in Projectile.update for particles and reflection
                 return;
             }
             this.createSparkParticles(bullet.x, bullet.y, '#4488aa');
@@ -2010,6 +2033,38 @@ class GameEngine {
                 }, 2500);
             }, 500);
         }, 2500); // 1s extra duration as requested (1500 -> 2500)
+    }
+
+    executeEnemyDeath(enemy) {
+        // Faster and smaller version of boss death
+        enemy.active = false;
+        const interval = setInterval(() => {
+            this.createDeathParticles(
+                enemy.x + Utils.randomRange(-15, 15),
+                enemy.y + Utils.randomRange(-15, 15),
+                4
+            );
+        }, 50);
+
+        setTimeout(() => {
+            clearInterval(interval);
+            enemy.destroy();
+            // Disintegration effect (smaller)
+            for (let i = 0; i < 10; i++) {
+                const p = document.createElement('div');
+                p.classList.add('particle');
+                p.style.width = '4px';
+                p.style.height = '4px';
+                p.style.background = 'var(--neon-red)';
+                p.style.boxShadow = '0 0 5px var(--neon-red)';
+                p.style.left = `${enemy.x + Utils.randomRange(-20, 20)}px`;
+                p.style.top = `${enemy.y + Utils.randomRange(-20, 20)}px`;
+                p.style.setProperty('--tx', `${Utils.randomRange(-15, 15)}px`);
+                p.style.setProperty('--ty', `${Utils.randomRange(-100, -200)}px`);
+                this.worldElement.appendChild(p);
+                setTimeout(() => p.remove(), 500);
+            }
+        }, 300);
     }
 
     pauseGame() {
