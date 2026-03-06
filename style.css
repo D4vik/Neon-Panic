@@ -129,8 +129,10 @@ body {
 .life-square-entity {
     width: 20px;
     height: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    transition: opacity 0.3s;
+    background: #39FF14;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 0 15px #39FF14, 0 0 30px #39FF14;
+    animation: item-float-glow 2s infinite ease-in-out;
 }
 
 .life-square {
@@ -810,10 +812,11 @@ body {
 }
 
 .powerup {
-    background: var(--neon-cyan);
-    box-shadow: var(--glow-cyan);
+    background: #39FF14 !important;
+    border: 2px solid #fff;
+    box-shadow: 0 0 15px #39FF14, 0 0 30px #39FF14 !important;
     z-index: 55;
-    animation: rgb-filter-cycle 3s infinite linear;
+    animation: item-float-glow 2s infinite ease-in-out !important;
 }
 
 @keyframes rgb-filter-cycle {
@@ -833,15 +836,24 @@ body {
 
 
 .key {
-    width: 30px;
-    height: 30px;
-    background: #ff00ff;
-    box-shadow: 0 0 15px #ff00ff, 0 0 30px #ff00ff;
-    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+    width: 32px;
+    height: 32px;
+    background: #f8fc00 !important;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 15px #f8fc00, 0 0 30px #f8fc00 !important;
+    z-index: 55;
+    animation: key-float-glow 2s infinite ease-in-out !important;
 }
 
-.key.rgb-pulse {
-    animation: rgb-bg-cycle 3s infinite linear;
+.key-enemy {
+    width: 45px;
+    height: 45px;
+    background: var(--neon-red);
+    box-shadow: var(--glow-red);
+    border: 2px solid #fff;
+    animation: spinning 2s linear infinite !important;
+    z-index: 45;
 }
 
 @keyframes rgb-bg-cycle {
@@ -1071,4 +1083,87 @@ body {
     z-index: 300;
     opacity: 0;
     transition: opacity 0.3s;
+}
+
+/* New Animations */
+@keyframes item-float-glow {
+
+    0%,
+    100% {
+        transform: translate(-50%, -50%) scale(1);
+        filter: brightness(1) drop-shadow(0 0 10px #39FF14);
+    }
+
+    50% {
+        transform: translate(-50%, -70%) scale(1.2);
+        filter: brightness(1.5) drop-shadow(0 0 20px #39FF14);
+    }
+}
+
+.floating-text {
+    position: absolute;
+    color: #39FF14;
+    font-weight: bold;
+    font-size: 20px;
+    text-shadow: 0 0 5px #39FF14;
+    pointer-events: none;
+    z-index: 200;
+    white-space: nowrap;
+    animation: float-up-fade 1s forwards ease-out;
+}
+
+@keyframes float-up-fade {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, 0) scale(0.5);
+    }
+
+    20% {
+        opacity: 1;
+        transform: translate(-50%, -10px) scale(1.5);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -60px) scale(1.2);
+    }
+}
+
+.item-label {
+    position: absolute;
+    bottom: 120%;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #39FF14;
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+    text-shadow: 0 0 5px #39FF14;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 60;
+}
+
+@keyframes key-float-glow {
+
+    0%,
+    100% {
+        transform: translate(-50%, -50%) scale(1);
+        filter: brightness(1) drop-shadow(0 0 10px #f8fc00);
+    }
+
+    50% {
+        transform: translate(-50%, -70%) scale(1.2);
+        filter: brightness(1.5) drop-shadow(0 0 20px #f8fc00);
+    }
+}
+
+@keyframes spinning {
+    from {
+        transform: translate(-50%, -50%) rotate(0deg);
+    }
+
+    to {
+        transform: translate(-50%, -50%) rotate(360deg);
+    }
 }

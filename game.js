@@ -138,7 +138,7 @@ class Projectile extends Entity {
         this.owner = owner;
         this.isPiercing = false;
         this.isBoomerang = false;
-        this.isBounce = false;
+        this.isRicochet = false;
         this.bounces = 0;
         this.traveled = 0;
         this.returning = false;
@@ -188,7 +188,7 @@ class Projectile extends Entity {
             }
         }
 
-        if (this.isBounce) {
+        if (this.isRicochet) {
             const barriers = game.entities.filter(e => e.type === 'obstacle' || e.type === 'door');
             for (const o of barriers) {
                 if (this.checkCollision(o)) {
@@ -239,11 +239,12 @@ class Projectile extends Entity {
             }
             return 1;
         } else if (this.isBoomerang) {
+            this.destroy();
             if (entity.type === 'boss' || entity instanceof KeyEnemy) {
                 return 2;
             }
             return 1;
-        } else if (this.isBounce) {
+        } else if (this.isRicochet) {
             if (entity.type === 'enemy' || entity.type === 'boss') {
                 this.bounces++;
                 if (this.bounces >= 3) {
@@ -446,11 +447,11 @@ class Player extends Entity {
             bullet.isBoomerang = true;
             game.entities.push(bullet);
             game.worldElement.appendChild(bullet.domElement);
-        } else if (this.attackType === 'bounce') {
+        } else if (this.attackType === 'ricochet') {
             const vx = Math.cos(this.aimAngle) * CONFIG.BULLET_SPEED;
             const vy = Math.sin(this.aimAngle) * CONFIG.BULLET_SPEED;
             const bullet = new Projectile(this.x, this.y, vx, vy, 'player', this._color);
-            bullet.isBounce = true;
+            bullet.isRicochet = true;
             game.entities.push(bullet);
             game.worldElement.appendChild(bullet.domElement);
         } else {
@@ -482,6 +483,7 @@ class Player extends Entity {
         if (this.dead || this._invincible) return;
         this.lives--;
         this.updateLivesUI();
+        game.showFloatingText('-1', this.x, this.y, '#ff0033');
 
         if (this.lives > 0) {
             // Flash invincibility — don't go grey, just blink
@@ -767,7 +769,7 @@ class KeyEnemy extends Entity {
         this.hp = this.maxHp;
         this.speed = 1.5;
         this.active = false;
-        this.domElement.classList.add('zombie-enemy', 'rgb-pulse');
+        this.domElement.classList.add('key-enemy');
         this.moveAngle = Math.random() * Math.PI * 2;
         this.shootTimer = 60;
         this.patternIndex = 0;
@@ -859,10 +861,10 @@ class Boss extends Entity {
     // Refined hitbox — 80% of visual size
     getBounds() {
         return {
-            left: this.x - 40,
-            right: this.x + 40,
-            top: this.y - 40,
-            bottom: this.y + 40
+            left: this.x - 60,
+            right: this.x + 60,
+            top: this.y - 60,
+            bottom: this.y + 60
         };
     }
 
@@ -955,9 +957,14 @@ class Obstacle extends Entity {
 // --- Key ---
 class Key extends Entity {
     constructor(x, y) {
-        super(x, y, 30, 30, 'key');
-        this.domElement.classList.add('rgb-pulse');
-        // Static key item, no movement needed unless it's a pickup
+        super(x, y, 32, 32, 'key');
+
+        const label = document.createElement('div');
+        label.className = 'item-label';
+        label.innerText = 'KEY';
+        label.style.color = '#f8fc00';
+        label.style.textShadow = '0 0 5px #f8fc00';
+        this.domElement.appendChild(label);
     }
 
     update() {
@@ -973,6 +980,11 @@ class Powerup extends Entity {
         this.domElement.style.borderRadius = '50%';
         this.domElement.style.width = '32px';
         this.domElement.style.height = '32px';
+
+        const label = document.createElement('div');
+        label.className = 'item-label';
+        label.innerText = 'Power up';
+        this.domElement.appendChild(label);
     }
 
     update() {
@@ -1502,7 +1514,12 @@ class GameEngine {
             if (!overlaps(rx, ry)) {
                 // Also check distance from players for initial spawn
                 const tooClose = this.players ? this.players.some(p => Utils.distance({ x: rx, y: ry }, p) < 150) : false;
-                if (!tooClose) return { x: rx, y: ry };
+
+                // Enlarge safe zone around doors (using center points)
+                const doorPos = [{ x: 400, y: 0 }, { x: 400, y: 600 }, { x: 0, y: 300 }, { x: 800, y: 300 }];
+                const nearDoor = doorPos.some(d => Utils.distance({ x: rx, y: ry }, d) < 220);
+
+                if (!tooClose && !nearDoor) return { x: rx, y: ry };
             }
         }
 
@@ -1772,7 +1789,7 @@ class GameEngine {
         pair = getPair('projectile', 'obstacle');
         if (pair) {
             const [bullet] = pair;
-            if (bullet.isPiercing || bullet.isBounce) {
+            if (bullet.isPiercing || bullet.isRicochet) {
                 // Already handled in Projectile.update for particles and reflection
                 return;
             }
@@ -1781,13 +1798,23 @@ class GameEngine {
             return;
         }
 
-        // Player vs Enemy — physical contact drains all lives instantly
+        // Player vs Enemy — physical contact damage with cooldown
         pair = getPair('player', 'enemy');
         if (pair) {
             const [player] = pair;
             if (!player.dead && !player._invincible) {
-                this.createDeathParticles(player.x, player.y, 20);
-                player.lives = 1; // set to 1 so die() final branch triggers
+                this.createDeathParticles(player.x, player.y, 10);
+                player.die(this);
+            }
+            return;
+        }
+
+        // Player vs Boss — physical contact damage
+        pair = getPair('player', 'boss');
+        if (pair) {
+            const [player] = pair;
+            if (!player.dead && !player._invincible) {
+                this.createDeathParticles(player.x, player.y, 10);
                 player.die(this);
             }
             return;
@@ -1815,7 +1842,7 @@ class GameEngine {
                 if (player.lives < player.maxLives) {
                     player.lives++;
                     player.updateLivesUI();
-                    this.showAnnouncement('LIFE UP!');
+                    this.showFloatingText('Life Up!', powerup.x, powerup.y);
                     powerup.destroy();
                 }
             } else {
@@ -1832,7 +1859,7 @@ class GameEngine {
             { type: 'piercing', maxShots: 3, msg: 'PIERCING UNLOCKED' },
             { type: 'quad', maxShots: 3, msg: 'QUAD UNLOCKED' },
             { type: 'boomerang', maxShots: 3, msg: 'BOOMERANG UNLOCKED' },
-            { type: 'bounce', maxShots: 3, msg: 'BOUNCE UNLOCKED' }
+            { type: 'ricochet', maxShots: 3, msg: 'RICOCHET UNLOCKED' }
         ];
         // Filter out current type; if attackType is 'normal'/undefined, all 5 are available
         const currentType = player.attackType || 'normal';
@@ -1935,6 +1962,18 @@ class GameEngine {
         el.innerText = text;
         layer.appendChild(el);
         setTimeout(() => el.remove(), 2500);
+    }
+
+    showFloatingText(text, x, y, color = '#39FF14') {
+        const el = document.createElement('div');
+        el.className = 'floating-text';
+        el.innerText = text;
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        el.style.color = color;
+        el.style.textShadow = `0 0 5px ${color}`;
+        this.worldElement.appendChild(el);
+        setTimeout(() => el.remove(), 1000);
     }
 
     createDeathParticles(x, y, count = 10) {

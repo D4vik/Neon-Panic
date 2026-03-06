@@ -21,8 +21,8 @@ Welcome to **Neon Panic**! Traverse procedurally generated dungeons, defeat cybe
 
 ### How to Play
 1. **Exploration**: Navigate through dungeon rooms. Some rooms contain enemies that must be defeated to unlock the doors.
-2. **Key**: Find the Key room (indicated by an RGB mini-boss) and defeat the enemy to obtain the key required to access the Boss room.
-3. **Power-Ups**: Search treasure rooms to obtain power-ups (Shotgun, Piercing, Quad Shot, Boomerang, and Bouncing). Power-ups remain active in subsequent levels!
+2. **Key**: Find the Key room (guarded by a mini-boss) and defeat the enemy to obtain the key required to access the Boss room.
+3. **Power-Ups**: Search treasure rooms to obtain power-ups (Shotgun, Piercing, Quad Shot, Boomerang, and RICOCHET). Power-ups remain active in subsequent levels!
 4. **Boss**: Once you have the key, enter the Boss room (pulsing RGB door). Defeat the boss to complete the level and advance to the next one.
 5. **Levels**: With each new level, difficulty increases, and the dungeon becomes larger.
 6. **Death**: You have 3 lives. If you lose them all, the game ends. In multiplayer, if one player dies, their partner can revive them by completing a room.
@@ -47,8 +47,8 @@ Benvenuto in **Neon Panic**! Attraversa dungeon generati proceduralmente, sconfi
 
 ### Come Funziona il Gioco
 1. **Esplorazione**: Naviga attraverso le stanze del dungeon. Alcune stanze contengono nemici che devono essere sconfitti per sbloccare le porte.
-2. **Chiave**: Trova la stanza della Chiave (indicata da un miniboss RGB) e sconfiggi il nemico per ottenere la chiave necessaria ad accedere alla stanza del Boss.
-3. **Power-Up**: Cerca le stanze del tesoro per ottenere potenziamenti (Shotgun, Piercing, Quad Shot, Boomerang e Bouncing). I potenziamenti rimangono attivi anche nei livelli successivi!
+2. **Chiave**: Trova la stanza della Chiave (protetta da un miniboss) e sconfiggi il nemico per ottenere la chiave necessaria ad accedere alla stanza del Boss.
+3. **Power-Up**: Cerca le stanze del tesoro per ottenere potenziamenti (Shotgun, Piercing, Quad Shot, Boomerang e RICOCHET). I potenziamenti rimangono attivi anche nei livelli successivi!
 4. **Boss**: Una volta ottenuta la chiave, entra nella stanza del Boss (porta pulsante RGB). Sconfiggi il boss per completare il livello e avanzare a quello successivo.
 5. **Livelli**: Ad ogni nuovo livello, la difficoltà aumenta e il dungeon diventa più grande.
 6. **Morte**: Hai 3 vite. Se le perdi tutte, il gioco finisce. In multiplayer, se un giocatore muore, il compagno può riportarlo in vita completando una stanza.
